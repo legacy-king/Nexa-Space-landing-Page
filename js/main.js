@@ -1,6 +1,9 @@
-/* ===================================
+/*/* ===================================
    NEXA SPACE - MAIN JAVASCRIPT
    ================================== */
+
+// ========== CONFIGURATION ==========
+const SHEETBEST_API_URL = 'https://api.sheetbest.com/sheets/d8d0f795-4a51-4335-b3ad-e36d525adddd';
 
 // Wait for DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', function() {
@@ -31,18 +34,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
     mobileNavLinks.forEach(link => {
         link.addEventListener('click', function() {
-            mobileMenu.classList.remove('active');
+            if (mobileMenu) {
+                mobileMenu.classList.remove('active');
+            }
             // Reset hamburger icon
-            const spans = mobileMenuToggle.querySelectorAll('span');
-            spans[0].style.transform = '';
-            spans[1].style.opacity = '1';
-            spans[2].style.transform = '';
+            if (mobileMenuToggle) {
+                const spans = mobileMenuToggle.querySelectorAll('span');
+                spans[0].style.transform = '';
+                spans[1].style.opacity = '1';
+                spans[2].style.transform = '';
+            }
         });
     });
     
     
     // ========== SMOOTH SCROLLING ==========
-    // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function(e) {
             const href = this.getAttribute('href');
@@ -77,26 +83,57 @@ document.addEventListener('DOMContentLoaded', function() {
             const formData = new FormData(this);
             const data = Object.fromEntries(formData);
             
-            // Basic validation
+            // Add type and timestamp
+            data.type = 'seeker';
+            data.timestamp = new Date().toLocaleString('en-US', { 
+                timeZone: 'Africa/Lagos',
+                dateStyle: 'short',
+                timeStyle: 'short'
+            });
+            
+            // Validate email
             if (!validateEmail(data.email)) {
                 showNotification('Please enter a valid email address', 'error');
                 return;
             }
             
-            // Log data (for testing)
-            console.log('Seeker signup:', data);
+            // Sanitize inputs (prevent XSS)
+            Object.keys(data).forEach(key => {
+                if (typeof data[key] === 'string') {
+                    data[key] = sanitizeInput(data[key]);
+                }
+            });
             
-            // TODO: Replace with your backend endpoint or Google Sheets API
-            // Example: await submitToBackend(data, 'seeker');
+            // Show loading state
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Submitting...';
+            submitBtn.disabled = true;
             
-            // For now, just show success message
-            showNotification('Thanks for joining! We\'ll notify you when we launch.', 'success');
-            
-            // Reset form
-            this.reset();
-            
-            // Optional: Track with analytics
-            // trackEvent('signup', 'seeker', data.location);
+            try {
+                // Submit to Google Sheets via SheetBest
+                await submitToSheetBest(data);
+                
+                // Success!
+                showNotification('Thanks for joining! We\'ll notify you when we launch.', 'success');
+                this.reset();
+                
+                // Track event (if analytics is setup)
+                if (typeof gtag !== 'undefined') {
+                    gtag('event', 'signup', { 
+                        'event_category': 'form',
+                        'event_label': 'seeker'
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Submission error:', error);
+                showNotification('Something went wrong. Please try again or email us directly.', 'error');
+            } finally {
+                // Restore button state
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            }
         });
     }
     
@@ -110,109 +147,161 @@ document.addEventListener('DOMContentLoaded', function() {
             const formData = new FormData(this);
             const data = Object.fromEntries(formData);
             
-            // Basic validation
+            // Add type and timestamp
+            data.type = 'agent';
+            data.timestamp = new Date().toLocaleString('en-US', { 
+                timeZone: 'Africa/Lagos',
+                dateStyle: 'short',
+                timeStyle: 'short'
+            });
+            
+            // Validate email
             if (!validateEmail(data.email)) {
                 showNotification('Please enter a valid email address', 'error');
                 return;
             }
             
-            if (!validatePhone(data.phone)) {
+            // Validate phone (required for agents)
+            if (!data.phone || !validatePhone(data.phone)) {
                 showNotification('Please enter a valid phone number', 'error');
                 return;
             }
             
-            // Log data (for testing)
-            console.log('Agent signup:', data);
+            // Sanitize inputs
+            Object.keys(data).forEach(key => {
+                if (typeof data[key] === 'string') {
+                    data[key] = sanitizeInput(data[key]);
+                }
+            });
             
-            // TODO: Replace with your backend endpoint or Google Sheets API
-            // Example: await submitToBackend(data, 'agent');
+            // Show loading state
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Submitting...';
+            submitBtn.disabled = true;
             
-            // Show success message
-            showNotification('Thanks for applying! We\'ll review your application and get back to you within 48 hours.', 'success');
-            
-            // Reset form
-            this.reset();
-            
-            // Optional: Track with analytics
-            // trackEvent('signup', 'agent', data.company);
+            try {
+                // Submit to Google Sheets via SheetBest
+                await submitToSheetBest(data);
+                
+                // Success!
+                showNotification('Thanks for applying! We\'ll review your application and get back to you within 48 hours.', 'success');
+                this.reset();
+                
+                // Track event
+                if (typeof gtag !== 'undefined') {
+                    gtag('event', 'signup', { 
+                        'event_category': 'form',
+                        'event_label': 'agent'
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Submission error:', error);
+                showNotification('Something went wrong. Please try again or email us directly.', 'error');
+            } finally {
+                // Restore button state
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            }
         });
     }
     
     
-    // ========== FORM SUBMISSION FUNCTIONS ==========
+    // ========== FORM SUBMISSION FUNCTION ==========
     
     /**
-     * Submit form data to backend API
+     * Submit form data to SheetBest API
+     * @param {Object} data - Form data to submit
+     * @returns {Promise} - Resolves if successful, rejects on error
      */
-    async function submitToBackend(data, formType) {
-        try {
-            const response = await fetch('https://api.sheetbest.com/sheets/d8d0f795-4a51-4335-b3ad-e36d525adddd', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...data,
-                    type: formType,
-                    timestamp: new Date().toISOString()
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error('Submission failed');
+    async function submitToSheetBest(data) {
+        const response = await fetch(SHEETBEST_API_URL, {
+            method: 'POST',
+            mode: 'cors',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (!response.ok) {
+            // Try to get error message from response
+            let errorMessage = 'Submission failed';
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.message || errorMessage;
+            } catch (e) {
+                // Use default error message
             }
-            
-            return await response.json();
-        } catch (error) {
-            console.error('Submission error:', error);
-            throw error;
+            throw new Error(errorMessage);
         }
-    }
-    
-    /**
-     * Submit to Google Sheets using SheetMonkey or similar service
-     * Get your webhook URL from: https://sheetmonkey.io
-     */
-    async function submitToGoogleSheets(data, webhookUrl) {
-        try {
-            const response = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data)
-            });
-            
-            if (!response.ok) {
-                throw new Error('Google Sheets submission failed');
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('Google Sheets error:', error);
-            throw error;
-        }
+        
+        return await response.json();
     }
     
     
     // ========== VALIDATION FUNCTIONS ==========
     
+    /**
+     * Validate email address format
+     * @param {string} email - Email to validate
+     * @returns {boolean} - True if valid
+     */
     function validateEmail(email) {
+        if (!email || typeof email !== 'string') return false;
+        
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return re.test(email);
+        return re.test(email.trim().toLowerCase());
     }
     
+    /**
+     * Validate phone number format
+     * @param {string} phone - Phone to validate
+     * @returns {boolean} - True if valid
+     */
     function validatePhone(phone) {
-        // Basic phone validation (accepts various formats)
-        if (!phone) return true; // Phone is optional in seeker form
-        const re = /^[\d\s\-\+\(\)]+$/;
-        return re.test(phone) && phone.replace(/\D/g, '').length >= 10;
+        if (!phone || typeof phone !== 'string') return false;
+        
+        // Remove all non-numeric characters
+        const cleanPhone = phone.replace(/\D/g, '');
+        
+        // Must be at least 10 digits
+        return cleanPhone.length >= 10;
+    }
+    
+    /**
+     * Sanitize user input to prevent XSS
+     * @param {string} input - User input to sanitize
+     * @returns {string} - Sanitized input
+     */
+    function sanitizeInput(input) {
+        if (typeof input !== 'string') return input;
+        
+        // Create a temporary div to use browser's HTML parser
+        const div = document.createElement('div');
+        div.textContent = input;
+        return div.innerHTML
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;')
+            .replace(/\//g, '&#x2F;');
     }
     
     
     // ========== NOTIFICATION SYSTEM ==========
     
+    /**
+     * Show notification message to user
+     * @param {string} message - Message to display
+     * @param {string} type - 'success' or 'error'
+     */
     function showNotification(message, type = 'success') {
+        // Remove any existing notifications
+        const existingNotifications = document.querySelectorAll('.notification');
+        existingNotifications.forEach(n => n.remove());
+        
         // Create notification element
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
@@ -241,40 +330,45 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => {
             notification.style.animation = 'slideOut 0.3s ease-out';
             setTimeout(() => {
-                document.body.removeChild(notification);
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
             }, 300);
         }, 5000);
     }
     
-    // Add notification animations to page
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
+    // Add notification animations
+    if (!document.getElementById('notification-styles')) {
+        const style = document.createElement('style');
+        style.id = 'notification-styles';
+        style.textContent = `
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
             }
-            to {
-                transform: translateX(0);
-                opacity: 1;
+            
+            @keyframes slideOut {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
             }
-        }
-        
-        @keyframes slideOut {
-            from {
-                transform: translateX(0);
-                opacity: 1;
-            }
-            to {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-        }
-    `;
-    document.head.appendChild(style);
+        `;
+        document.head.appendChild(style);
+    }
     
     
-    // ========== SCROLL ANIMATIONS (OPTIONAL) ==========
+    // ========== SCROLL ANIMATIONS ==========
     
     // Fade in elements as they come into view
     const observerOptions = {
@@ -297,35 +391,12 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     
-    // ========== ANALYTICS TRACKING (OPTIONAL) ==========
+    // ========== SCROLL TO TOP BUTTON ==========
     
-    /**
-     * Track events with Google Analytics or your analytics platform
-     * Uncomment and configure when you add analytics
-     */
-    function trackEvent(category, action, label) {
-        // Google Analytics 4 example:
-        // gtag('event', action, {
-        //     'event_category': category,
-        //     'event_label': label
-        // });
-        
-        // Facebook Pixel example:
-        // fbq('track', action, {
-        //     category: category,
-        //     label: label
-        // });
-        
-        console.log('Event tracked:', category, action, label);
-    }
-    
-    
-    // ========== SCROLL TO TOP BUTTON (OPTIONAL) ==========
-    
-    // Create scroll to top button
     const scrollTopBtn = document.createElement('button');
     scrollTopBtn.innerHTML = '↑';
     scrollTopBtn.className = 'scroll-top-btn';
+    scrollTopBtn.setAttribute('aria-label', 'Scroll to top');
     scrollTopBtn.style.cssText = `
         position: fixed;
         bottom: 30px;
@@ -333,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function() {
         width: 50px;
         height: 50px;
         border-radius: 50%;
-        background-color: var(--color-primary);
+        background-color: #4F46E5;
         color: white;
         border: none;
         font-size: 24px;
@@ -347,13 +418,17 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.appendChild(scrollTopBtn);
     
     // Show/hide scroll to top button
+    let scrollTimeout;
     window.addEventListener('scroll', function() {
-        if (window.pageYOffset > 300) {
-            scrollTopBtn.style.display = 'block';
-        } else {
-            scrollTopBtn.style.display = 'none';
-        }
-    });
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            if (window.pageYOffset > 300) {
+                scrollTopBtn.style.display = 'block';
+            } else {
+                scrollTopBtn.style.display = 'none';
+            }
+        }, 100);
+    }, { passive: true });
     
     // Scroll to top when clicked
     scrollTopBtn.addEventListener('click', function() {
@@ -378,50 +453,3 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('%cInterested in joining the team? Email: hello@nexaspace.ng', 'color: #10B981; font-size: 12px;');
     
 });
-
-
-// ========== EXAMPLE: CONNECTING TO GOOGLE SHEETS ==========
-
-/**
- * STEP-BY-STEP GUIDE TO CONNECT FORMS TO GOOGLE SHEETS
- * 
- * 1. Go to https://sheetmonkey.io or https://sheet.best
- * 2. Sign up with your Google account
- * 3. Create a new connection to Google Sheets
- * 4. Get your webhook URL (looks like: https://api.sheetmonkey.io/form/abc123)
- * 5. Replace the form submission code with:
- * 
- * seekerForm.addEventListener('submit', async function(e) {
- *     e.preventDefault();
- *     const formData = new FormData(this);
- *     const data = Object.fromEntries(formData);
- *     
- *     try {
- *         await fetch('YOUR_WEBHOOK_URL_HERE', {
- *             method: 'POST',
- *             headers: { 'Content-Type': 'application/json' },
- *             body: JSON.stringify(data)
- *    
-
-// ========== EXAMPLE: GOOGLE ANALYTICS SETUP ==========
-
-/**
- * HOW TO ADD GOOGLE ANALYTICS
- * 
- * 1. Go to https://analytics.google.com
- * 2. Create a new property
- * 3. Get your Measurement ID (looks like G-XXXXXXXXXX)
- * 4. Add this code to the <head> of index.html BEFORE the closing </head> tag:
- * 
- * <!-- Google Analytics -->
- * <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
- * <script>
- *   window.dataLayer = window.dataLayer || [];
- *   function gtag(){dataLayer.push(arguments);}
- *   gtag('js', new Date());
- *   gtag('config', 'G-XXXXXXXXXX');
- * </script>
- * 
- * 5. Then you can track events with:
- * gtag('event', 'signup', { 'event_category': 'seeker' });
- */
