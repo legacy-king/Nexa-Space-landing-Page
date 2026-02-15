@@ -1,9 +1,11 @@
-/*/* ===================================
+/* ===================================
    NEXA SPACE - MAIN JAVASCRIPT
+   Complete and corrected version
    ================================== */
 
 // ========== CONFIGURATION ==========
-const SHEETBEST_API_URL = 'https://api.sheetbest.com/sheets/d8d0f795-4a51-4335-b3ad-e36d525adddd';
+const SEEKER_API_URL = 'https://api.sheetbest.com/sheets/d8d0f795-4a51-4335-b3ad-e36d525adddd';
+const AGENT_API_URL = 'https://api.sheetbest.com/sheets/8e445630-20f4-4076-91c0-98b548b1547c';
 
 // Wait for DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', function() {
@@ -49,6 +51,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     
     // ========== SMOOTH SCROLLING ==========
+    // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function(e) {
             const href = this.getAttribute('href');
@@ -83,15 +86,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const formData = new FormData(this);
             const data = Object.fromEntries(formData);
             
-            // Add type and timestamp
-            data.type = 'seeker';
+            // Add timestamp
             data.timestamp = new Date().toLocaleString('en-US', { 
                 timeZone: 'Africa/Lagos',
                 dateStyle: 'short',
                 timeStyle: 'short'
             });
             
-            // Validate email
+            // Basic validation
             if (!validateEmail(data.email)) {
                 showNotification('Please enter a valid email address', 'error');
                 return;
@@ -111,8 +113,8 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = true;
             
             try {
-                // Submit to Google Sheets via SheetBest
-                await submitToSheetBest(data);
+                // Submit to Property Seekers sheet
+                await submitToSheetBest(data, SEEKER_API_URL);
                 
                 // Success!
                 showNotification('Thanks for joining! We\'ll notify you when we launch.', 'success');
@@ -147,8 +149,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const formData = new FormData(this);
             const data = Object.fromEntries(formData);
             
-            // Add type and timestamp
-            data.type = 'agent';
+            // Add timestamp
             data.timestamp = new Date().toLocaleString('en-US', { 
                 timeZone: 'Africa/Lagos',
                 dateStyle: 'short',
@@ -181,8 +182,8 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = true;
             
             try {
-                // Submit to Google Sheets via SheetBest
-                await submitToSheetBest(data);
+                // Submit to Agents sheet
+                await submitToSheetBest(data, AGENT_API_URL);
                 
                 // Success!
                 showNotification('Thanks for applying! We\'ll review your application and get back to you within 48 hours.', 'success');
@@ -213,10 +214,11 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * Submit form data to SheetBest API
      * @param {Object} data - Form data to submit
+     * @param {string} apiUrl - API endpoint URL (seeker or agent)
      * @returns {Promise} - Resolves if successful, rejects on error
      */
-    async function submitToSheetBest(data) {
-        const response = await fetch(SHEETBEST_API_URL, {
+    async function submitToSheetBest(data, apiUrl) {
+        const response = await fetch(apiUrl, {
             method: 'POST',
             mode: 'cors',
             headers: {
